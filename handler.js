@@ -56,6 +56,11 @@ export default async (sock, m) => {
         m.chat = from;
         m.cmd = global.prefix + command;
 
+        sock.sendSticker = async (jid, urlOrBuffer, quoted, options = {}) => {
+            let source = typeof urlOrBuffer === 'string' ? { url: urlOrBuffer } : urlOrBuffer;
+            return await sock.sendMessage(jid, { sticker: source, ...options }, { quoted: quoted });
+        };
+
         sock.sendButton = async (jid, text, footer, buttons, quoted) => {
             let formattedButtons = buttons.map(btn => ({
                 name: 'quick_reply',
