@@ -3,7 +3,7 @@ import pkgBaileys from '@whiskeysockets/baileys';
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = pkgBaileys;
 import pino from 'pino';
 import readline from 'readline';
-import caseHandler from './case.js';
+import messageHandler from './handler.js';
 
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 const question = (text) => new Promise((resolve) => rl.question(text, resolve));
@@ -45,7 +45,7 @@ async function startBot() {
     sock.ev.on('messages.upsert', async (chatUpdate) => {
         if (chatUpdate.type === 'notify') {
             for (const m of chatUpdate.messages) {
-                caseHandler(sock, m).catch(console.error);
+                messageHandler(sock, m).catch(console.error);
             }
         }
     });
