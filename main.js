@@ -1,54 +1,165 @@
-import './config.js';
-import pkgBaileys from '@whiskeysockets/baileys';
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = pkgBaileys;
-import pino from 'pino';
-import readline from 'readline';
-import messageHandler from './handler.js';
+import {
+    default as makeWASocket,
+    useMultiFileAuthState,
+    DisconnectReason,
+    fetchLatestBaileysVersion
+} from "@whiskeysockets/baileys"
 
-const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-const question = (text) => new Promise((resolve) => rl.question(text, resolve));
+import pino from "pino"
+import readline from "readline"
 
-async function startBot() {
-    const { state, saveCreds } = await useMultiFileAuthState('session_wa');
+import "./config.js"
 
-    const sock = makeWASocket({
-        logger: pino({ level: 'silent' }),
-        printQRInTerminal: false,
-        auth: state,
-        browser: ['Ubuntu', 'Chrome', '20.0.04'],
-        defaultQueryTimeoutMs: undefined,
-        connectTimeoutMs: 60000,
-        keepAliveIntervalMs: 30000
-    });
+import { serialize } from "./lib/serialize.js"
+import { loadPlugins, handler } from "./handler.js"
+import Case from "./case.js"
 
-    if (!sock.authState.creds.registered) {
-        setTimeout(async () => {
-            let phoneNumber = await question('[?] Masukkan Nomor: ');
-            phoneNumber = phoneNumber.replace(/[^0-9]/g, '');
-            let code = await sock.requestPairingCode(phoneNumber);
-            console.log(`[+] PAIRING CODE: ${code}`);
-        }, 3000);
-    }
+const question = (text) => {
+    const rl = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout
+    })
 
-    sock.ev.on('connection.update', (update) => {
-        const { connection, lastDisconnect } = update;
-        if (connection === 'close') {
-            const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
-            if (shouldReconnect) startBot();
-        } else if (connection === 'open') {
-            console.log('[+] Bot Terhubung!');
-        }
-    });
-
-    sock.ev.on('creds.update', saveCreds);
-
-    sock.ev.on('messages.upsert', async (chatUpdate) => {
-        if (chatUpdate.type === 'notify') {
-            for (const m of chatUpdate.messages) {
-                messageHandler(sock, m).catch(console.error);
-            }
-        }
-    });
+    return new Promise(resolve =>
+        rl.question(text, ans => {
+            rl.close()
+            resolve(ans)
+        })
+    )
 }
 
-startBot();
+async function startBot() {
+
+    const {
+        state,
+        saveCreds
+    } = await useMultiFileAuthState("./session")
+
+    const {
+        version
+    } = await fetchLatestBaileysVersion()
+
+    const sock = makeWASocket({
+        auth: state,
+        version,
+        logger: pino({
+            level: "silent"
+        }),
+        printQRInTerminal: !global.usePairingCode
+    })
+
+    if (
+        global.usePairingCode &&
+        !sock.authState.creds.registered
+    ) {
+
+        const phone = await question(
+            "Masukkan Nomor:\n"
+        )
+
+        const code =
+            await sock.requestPairingCode(phone)
+
+        console.log(
+            "\nPAIRING CODE:",
+            code
+        )
+    }
+
+    await loadPlugins()
+
+    sock.ev.on(
+        "creds.update",
+        saveCreds
+    )
+
+    sock.ev.on(
+        "messages.upsert",
+        async ({ messages }) => {
+
+            let m = messages[0]
+
+            if (!m.message) return
+
+            if (m.key.fromMe) return
+
+            m = serialize(sock, m)
+
+            let body = m.body || ""
+
+            let prefix =
+                global.prefix.find(v =>
+                    body.startsWith(v)
+                )
+
+            if (!prefix) return
+
+            let args = body
+                .slice(prefix.length)
+                .trim()
+                .split(/ +/)
+
+            let command =
+                args.shift()
+                .toLowerCase()
+
+            let text = args.join(" ")
+
+            m.command = command
+            m.prefix = prefix
+
+            let plugin = await handler(
+                sock,
+                m,
+                command,
+                text,
+                args
+            )
+
+            if (!plugin) {
+
+                await Case(
+                    sock,
+                    m,
+                    command,
+                    text,
+                    args
+                )
+
+            }
+
+        }
+    )
+
+    sock.ev.on(
+        "connection.update",
+        async ({ connection, lastDisconnect }) => {
+
+            if (connection === "open") {
+
+                console.log(
+                    "Connected ✓"
+                )
+
+            }
+
+            if (connection === "close") {
+
+                let reason =
+                    lastDisconnect?.error?.output?.statusCode
+
+                if (
+                    reason !== DisconnectReason.loggedOut
+                ) {
+
+                    startBot()
+
+                }
+            }
+        }
+    )
+
+    return sock
+}
+
+startBot()
