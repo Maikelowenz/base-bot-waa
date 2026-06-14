@@ -13,6 +13,8 @@ export default async (sock, m) => {
                      (type === 'extendedTextMessage') ? m.message.extendedTextMessage.text : 
                      (type === 'imageMessage') ? m.message.imageMessage.caption : '';
 
+        if (!body) return;
+
         const isCmd = body.startsWith(global.prefix);
         const command = isCmd ? body.slice(global.prefix.length).trim().split(/ +/).shift().toLowerCase() : '';
         const args = body.trim().split(/ +/).slice(1);
