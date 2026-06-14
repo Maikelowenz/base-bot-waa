@@ -38,12 +38,15 @@ export default async (sock, m) => {
         const type = Object.keys(m.message)[0];
         const body = (type === 'conversation') ? m.message.conversation : 
                      (type === 'extendedTextMessage') ? m.message.extendedTextMessage.text : 
-                     (type === 'imageMessage') ? m.message.imageMessage.caption : '';
+                     (type === 'imageMessage') ? m.message.imageMessage.caption : 
+                     (type === 'buttonsResponseMessage') ? m.message.buttonsResponseMessage.selectedButtonId : 
+                     (type === 'templateButtonReplyMessage') ? m.message.templateButtonReplyMessage.selectedId : 
+                     (type === 'interactiveResponseMessage') ? JSON.parse(m.message.interactiveResponseMessage.nativeFlowResponseBody).resultSelectedId : '';
 
         if (!body) return;
 
         const isCmd = body.startsWith(global.prefix);
-        const command = isCmd ? body.slice(global.prefix.length).trim().split(/ +/).shift().toLowerCase() : '';
+        const command = isCmd ? body.slice(global.prefix.length).trim().split(/ +/).shift().toLowerCase() : body.trim().split(/ +/).shift().toLowerCase();
         const args = body.trim().split(/ +/).slice(1);
         const text = args.join(' ');
 
@@ -53,16 +56,40 @@ export default async (sock, m) => {
         m.chat = from;
         m.cmd = global.prefix + command;
 
-        if (isCmd) {
-            let handledByCase = await caseHandler(sock, m, command, text);
-            
-            if (!handledByCase) {
-                for (const file in global.plugins) {
-                    const plugin = global.plugins[file];
-                    if (plugin.command && plugin.command.includes(command)) {
-                        await plugin(m, { sock, text });
-                        break;
+        sock.sendButton = async (jid, text, footer, buttons, quoted) => {
+            let formattedButtons = buttons.map(btn => ({
+                name: 'quick_reply',
+                buttonParamsJson: JSON.stringify({
+                    display_text: btn.displayText,
+                    id: btn.id
+                })
+            }));
+
+            let msg = {
+                viewOnceMessage: {
+                    message: {
+                        interactiveMessage: {
+                            body: { text: text },
+                            footer: { text: footer },
+                            header: { hasMediaAttachment: false },
+                            nativeFlowMessage: {
+                                buttons: formattedButtons
+                            }
+                        }
                     }
+                }
+            };
+            return await sock.sendMessage(jid, msg, { quoted: quoted });
+        };
+
+        let handledByCase = await caseHandler(sock, m, command, text);
+        
+        if (!handledByCase) {
+            for (const file in global.plugins) {
+                const plugin = global.plugins[file];
+                if (plugin.command && plugin.command.includes(command)) {
+                    await plugin(m, { sock, text });
+                    break;
                 }
             }
         }
